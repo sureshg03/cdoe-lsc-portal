@@ -53,6 +53,8 @@ interface AdmissionSession {
   current_applications: number;
   is_active: boolean;
   is_open: boolean;
+  is_close: boolean;
+  is_currently_open: boolean;
   days_remaining: number;
   can_accept_applications: boolean;
 }
@@ -66,6 +68,8 @@ interface AdmissionSessionFormData {
   closing_date: string;
   description: string;
   max_applications: number;
+  is_open: boolean;
+  is_close: boolean;
 }
 
 const ADMISSION_TYPES = [
@@ -89,6 +93,8 @@ export const AdmissionManagement = () => {
     closing_date: '',
     description: '',
     max_applications: 0,
+    is_open: false,
+    is_close: true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -211,6 +217,8 @@ export const AdmissionManagement = () => {
       closing_date: '',
       description: '',
       max_applications: 0,
+      is_open: false,
+      is_close: true,
     });
     setErrors({});
   };
@@ -226,6 +234,8 @@ export const AdmissionManagement = () => {
       closing_date: session.closing_date,
       description: session.description || '',
       max_applications: session.max_applications,
+      is_open: session.is_open,
+      is_close: session.is_close,
     });
     setShowEditDialog(true);
   };
@@ -360,6 +370,11 @@ export const AdmissionManagement = () => {
                           {getStatusBadge(session.status)}
                           {!session.is_active && (
                             <Badge variant="outline" className="bg-gray-100">Inactive</Badge>
+                          )}
+                          {(session.is_open || session.is_close) && (
+                            <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-200">
+                              Manual Override
+                            </Badge>
                           )}
                         </div>
 
@@ -632,6 +647,50 @@ export const AdmissionManagement = () => {
                 />
               </div>
 
+              {/* Manual Status Override */}
+              <div className="space-y-3 sm:col-span-2">
+                <label className="text-sm font-semibold text-gray-700">
+                  Manual Status Override <span className="text-gray-400 text-xs">(Optional - overrides automatic status)</span>
+                </label>
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_open}
+                      onChange={(e) => {
+                        const isOpen = e.target.checked;
+                        setFormData({ 
+                          ...formData, 
+                          is_open: isOpen,
+                          is_close: isOpen ? false : formData.is_close
+                        });
+                      }}
+                      className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Force Open</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_close}
+                      onChange={(e) => {
+                        const isClose = e.target.checked;
+                        setFormData({ 
+                          ...formData, 
+                          is_close: isClose,
+                          is_open: isClose ? false : formData.is_open
+                        });
+                      }}
+                      className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Force Close</span>
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500">
+                  These settings allow manual override of the admission status, regardless of dates.
+                </p>
+              </div>
+
               {/* Description */}
               <div className="space-y-2 sm:col-span-2">
                 <label className="text-sm font-semibold text-gray-700">
@@ -757,6 +816,45 @@ export const AdmissionManagement = () => {
                   }}
                   className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm"
                 />
+              </div>
+
+              {/* Manual Status Override */}
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-medium">Manual Status Override</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_open}
+                      onChange={(e) => {
+                        const isOpen = e.target.checked;
+                        setFormData({ 
+                          ...formData, 
+                          is_open: isOpen,
+                          is_close: isOpen ? false : formData.is_close
+                        });
+                      }}
+                      className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm">Force Open</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_close}
+                      onChange={(e) => {
+                        const isClose = e.target.checked;
+                        setFormData({ 
+                          ...formData, 
+                          is_close: isClose,
+                          is_open: isClose ? false : formData.is_open
+                        });
+                      }}
+                      className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm">Force Close</span>
+                  </label>
+                </div>
               </div>
 
               <div className="space-y-2 sm:col-span-2">

@@ -38,14 +38,14 @@ class CounsellorSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class ApplicationSettingsSerializer(serializers.ModelSerializer):
-    is_open = serializers.ReadOnlyField()
+    is_currently_open = serializers.ReadOnlyField()
     days_remaining = serializers.ReadOnlyField()
     can_accept_applications = serializers.ReadOnlyField()
     
     class Meta:
         model = ApplicationSettings
         fields = '__all__'
-        read_only_fields = ['current_applications', 'status', 'created_at', 'updated_at']
+        read_only_fields = ['current_applications', 'created_at', 'updated_at']
 
 class SystemSettingsSerializer(serializers.ModelSerializer):
     class Meta:
