@@ -194,10 +194,18 @@ class ApplicationSettings(models.Model):
         super().save(*args, **kwargs)
 
     @property
-    def is_open(self):
-        """Check if admission is currently open"""
+    def is_currently_open(self):
+        """Check if admission is currently open based on dates and manual flags"""
         from datetime import date
         today = date.today()
+        
+        # First check manual override flags
+        if self.is_open and not self.is_close:
+            return True
+        elif self.is_close and not self.is_open:
+            return False
+        
+        # Fall back to date-based logic
         if not self.opening_date or not self.closing_date:
             return False
         return (
