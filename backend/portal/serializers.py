@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Program, Student, Attendance, AssignmentMark, Counsellor
+from .models import Program, Student, Attendance, AssignmentMark, Counsellor, ApplicationSettings, SystemSettings, NotificationSettings, ApplicationSettings, SystemSettings, NotificationSettings
 
 class ProgramSerializer(serializers.ModelSerializer):
     class Meta:
@@ -35,4 +35,26 @@ class CounsellorSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Counsellor
+        fields = '__all__'
+
+class ApplicationSettingsSerializer(serializers.ModelSerializer):
+    is_open = serializers.ReadOnlyField()
+    days_remaining = serializers.ReadOnlyField()
+    can_accept_applications = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = ApplicationSettings
+        fields = '__all__'
+        read_only_fields = ['current_applications', 'status', 'created_at', 'updated_at']
+
+class SystemSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemSettings
+        fields = '__all__'
+
+class NotificationSettingsSerializer(serializers.ModelSerializer):
+    user_lsc_number = serializers.CharField(source='user.lsc_number', read_only=True)
+
+    class Meta:
+        model = NotificationSettings
         fields = '__all__'

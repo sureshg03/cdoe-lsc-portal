@@ -21,4 +21,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('lsc_auth.urls', namespace='lsc_auth')),
     path('api/', include('portal.urls')),
+    path('api/admissions/', include('admissions.urls')),
 ]

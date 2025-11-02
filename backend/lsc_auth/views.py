@@ -4,7 +4,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.views import View
 import json
-from .models import LSCUser
+from .models import LSCUser, LSCAdmin
 from django.core.exceptions import ValidationError
 import re
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -14,18 +14,182 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework_simplejwt.tokens import RefreshToken
 
-class LSCLoginSerializer(TokenObtainPairSerializer):
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
-        token['lsc_number'] = user.lsc_number
-        token['lsc_name'] = user.lsc_name
-        return token
+class LSCLoginSerializer(serializers.Serializer):
+    lscNumber = serializers.CharField(required=False)
+    lsc_number = serializers.CharField(required=False)
+    lsc_code = serializers.CharField(required=False)
+    username = serializers.CharField(required=False)
+    password = serializers.CharField(write_only=True)
 
-class LSCLoginView(TokenObtainPairView):
-    serializer_class = LSCLoginSerializer
+    def validate(self, attrs):
+        # Extract the LSC code from any of the possible field names
+        lsc_code = None
+        if attrs.get('lscNumber'):
+            lsc_code = attrs['lscNumber']
+        elif attrs.get('lsc_number'):
+            lsc_code = attrs['lsc_number']
+        elif attrs.get('lsc_code'):
+            lsc_code = attrs['lsc_code']
+        elif attrs.get('username'):
+            lsc_code = attrs['username']
+
+        if not lsc_code:
+            raise serializers.ValidationError({
+                'lsc_number': 'LSC Code is required.'
+            })
+
+        password = attrs.get('password')
+        if not password:
+            raise serializers.ValidationError({
+                'password': 'Password is required.'
+            })
+
+        # Authenticate using LSCAdminAuthBackend
+        from django.contrib.auth import authenticate
+        user = authenticate(
+            self.context.get('request'),
+            lsc_code=lsc_code,
+            password=password
+        )
+
+        if not user:
+            raise serializers.ValidationError({
+                'detail': 'Invalid LSC Code or Password. Please check your credentials and try again.'
+            })
+
+        # Check if LSCAdmin (from lsc_admins table)
+        if isinstance(user, LSCAdmin):
+            if not user.is_active:
+                raise serializers.ValidationError({
+                    'detail': 'This account has been deactivated. Please contact the administrator.'
+                })
+        # Check if LSCUser (Django custom user)
+        elif hasattr(user, 'is_active') and not user.is_active:
+            raise serializers.ValidationError({
+                'detail': 'This account has been deactivated. Please contact the administrator.'
+            })
+
+        attrs['user'] = user
+        attrs['lsc_code'] = lsc_code
+        return attrs
+
+class LSCLoginView(APIView):
+    """
+    Secure Login View with JWT Authentication
+    Supports both LSC Admin (online_edu) and LSC User (lsc_portal_db) authentication
+    """
     permission_classes = [AllowAny]
+    throttle_scope = 'login'  # Rate limiting
+
+    def post(self, request):
+        serializer = LSCLoginSerializer(data=request.data, context={'request': request})
+        
+        if not serializer.is_valid():
+            return Response({
+                'detail': 'Invalid credentials provided.',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = serializer.validated_data['user']
+        lsc_code = serializer.validated_data['lsc_code']
+        
+        # Check if user is active
+        if not getattr(user, 'is_active', True):
+            return Response({
+                'detail': 'Account is deactivated. Please contact administrator.',
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            # Generate JWT tokens
+            # For LSCAdmin (from online_edu.lsc_admins)
+            if isinstance(user, LSCAdmin):
+                # Create custom token for LSCAdmin
+                refresh = RefreshToken()
+                refresh['user_id'] = user.id
+                refresh['lsc_code'] = user.lsc_code
+                refresh['lsc_name'] = user.lsc_name or user.center_name
+                refresh['is_admin'] = user.is_admin
+                refresh['email'] = user.email or ''
+                refresh['user_type'] = 'admin'  # Mark as admin
+                refresh['database'] = 'online_edu'
+                refresh['iss'] = 'lsc-portal'  # Issuer claim
+                
+                # Log successful login (optional - add logging)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Admin login successful: {user.lsc_code} - {user.admin_name}")
+                
+                return Response({
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                    'user': {
+                        'id': user.id,
+                        'lsc_code': user.lsc_code,
+                        'lsc_number': user.lsc_code,  # For frontend compatibility
+                        'lsc_name': user.lsc_name or user.center_name,
+                        'email': user.email or '',
+                        'is_admin': user.is_admin,
+                        'is_active': user.is_active,
+                        'user_type': 'admin',  # Identify as admin/LSC center admin
+                        'database': 'online_edu',
+                        'center_name': user.center_name,
+                        'mobile': user.mobile,
+                        'admin_name': user.admin_name,
+                    },
+                    'message': f'Welcome {user.admin_name}! Logged in as LSC Admin.'
+                }, status=status.HTTP_200_OK)
+            
+            # For LSCUser (from lsc_portal_db.lsc_auth_lscuser)
+            elif isinstance(user, LSCUser):
+                # Create custom token for LSCUser
+                refresh = RefreshToken()
+                refresh['user_id'] = user.id
+                refresh['lsc_number'] = user.lsc_number
+                refresh['lsc_name'] = user.lsc_name
+                refresh['email'] = user.email
+                refresh['user_type'] = 'user'
+                refresh['database'] = 'default'
+                refresh['iss'] = 'lsc-portal'  # Issuer claim
+                
+                # Log successful login (optional)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"User login successful: {user.lsc_number} - {user.lsc_name}")
+                
+                return Response({
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                    'user': {
+                        'id': user.id,
+                        'lsc_number': user.lsc_number,
+                        'lsc_code': user.lsc_number,
+                        'lsc_name': user.lsc_name,
+                        'email': user.email,
+                        'is_active': user.is_active,
+                        'is_staff': user.is_staff,
+                        'user_type': 'user',  # Identify as LSC center user
+                        'database': 'lsc_portal_db',
+                    },
+                    'message': f'Welcome {user.lsc_name}! Logged in as LSC User.'
+                }, status=status.HTTP_200_OK)
+            
+            else:
+                # Unknown user type
+                return Response({
+                    'detail': 'Invalid user type. Authentication failed.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            # Log error
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Login error for {lsc_code}: {str(e)}")
+            
+            return Response({
+                'detail': 'Authentication failed. Please try again.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class LSCLogoutView(APIView):
     def post(self, request):
@@ -54,3 +218,46 @@ class ChangePasswordView(APIView):
             return Response({'message': 'Password changed successfully'})
         else:
             return Response({'error': 'Incorrect old password'}, status=status.HTTP_400_BAD_REQUEST)
+
+class CustomTokenRefreshView(APIView):
+    """
+    Custom token refresh view that works with our custom authentication
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        try:
+            refresh_token = request.data.get('refresh')
+            if not refresh_token:
+                return Response({
+                    'detail': 'Refresh token is required.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Validate and refresh the token
+            from rest_framework_simplejwt.tokens import RefreshToken
+            
+            try:
+                refresh = RefreshToken(refresh_token)
+                
+                # Get the new access token
+                access_token = str(refresh.access_token)
+                
+                return Response({
+                    'access': access_token,
+                    'refresh': str(refresh)  # Optionally return new refresh token
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as token_error:
+                return Response({
+                    'detail': 'Invalid or expired refresh token.',
+                    'code': 'token_not_valid'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+                
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Token refresh error: {str(e)}")
+            
+            return Response({
+                'detail': 'Token refresh failed.'
+            }, status=status.HTTP_401_UNAUTHORIZED)

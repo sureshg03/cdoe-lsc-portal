@@ -1,0 +1,1 @@
+[{"model": "lsc_auth.lscuser", "pk": 1, "fields": {"password": "pbkdf2_sha256$1000000$RTL2JteLMrXAN2N5ueAmnn$Lvc+CTSOiNFFAJA7UHj9XXsrv4VcphVv4chXZFr7kFY=", "last_login": null, "lsc_number": "LSC001", "lsc_name": "Test Counsellor", "email": "test@example.com", "is_active": true, "is_staff": false, "date_joined": "2025-10-29T15:19:32.858Z"}}]

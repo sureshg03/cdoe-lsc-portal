@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-zq1qj^vfyywm&wa+c-4zks4_7pe(6-4%u49+410@^&xgyj!_j2
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['testserver', 'localhost', '127.0.0.1']
 
 
 # Application definition
@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'lsc_auth',
     'portal',
+    'admissions',
 ]
 
 MIDDLEWARE = [
@@ -78,22 +79,65 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+# SQLite (commented out)
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
+# MySQL Database Configuration - Triple Database Setup
 DATABASES = {
+    # Default database for Django admin, sessions, and LSC users
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'lsc_portal_db',  # LSC Portal database for LSC users
+        'USER': 'root',
+        'PASSWORD': '',  # Your MySQL password
+        'HOST': 'localhost',
+        'PORT': '3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'collation': 'utf8mb4_unicode_ci',
+        },
+    },
+    # Secondary database for admin authentication
+    'online_edu': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'online_edu',  # Online education database for admins
+        'USER': 'root',
+        'PASSWORD': '',  # Your MySQL password
+        'HOST': 'localhost',
+        'PORT': '3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'collation': 'utf8mb4_unicode_ci',
+        },
+    },
+    # Admin database for portal app (ApplicationSettings, etc)
+    'lsc_admindb': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'lsc_admindb',  # Admin database for portal models
+        'USER': 'root',
+        'PASSWORD': '',  # Your MySQL password
+        'HOST': 'localhost',
+        'PORT': '3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'collation': 'utf8mb4_unicode_ci',
+        },
     }
 }
 
-# For MySQL, uncomment and configure:
+# Database Router - Routes LSCAdmin to online_edu and LSCUser to default
+DATABASE_ROUTERS = ['backend.db_router.LSCDatabaseRouter']
+
+# Temporarily using SQLite to dump data
 # DATABASES = {
 #     'default': {
-#         'ENGINE': 'django.db.backends.mysql',
-#         'NAME': 'lsc_portal_db',
-#         'USER': 'your_mysql_user',
-#         'PASSWORD': 'your_mysql_password',
-#         'HOST': 'localhost',
-#         'PORT': '3306',
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
 #     }
 # }
 
@@ -139,9 +183,16 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Custom authentication backends - Dual Database Authentication
+# Checks both online_edu.lsc_admins AND lsc_portal_db.lsc_auth_lscuser
+AUTHENTICATION_BACKENDS = [
+    'lsc_auth.auth_backend.DualDatabaseAuthBackend',  # Master: Checks both databases
+    'django.contrib.auth.backends.ModelBackend',  # Fallback: Default Django auth
+]
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'lsc_auth.authentication.LSCJWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],
@@ -150,10 +201,63 @@ REST_FRAMEWORK = {
     ],
 }
 
+# JWT Settings for Secure Authentication
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),  # Access token expires in 2 hours
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),  # Refresh token expires in 7 days
+    'ROTATE_REFRESH_TOKENS': True,  # Generate new refresh token on refresh
+    'BLACKLIST_AFTER_ROTATION': True,  # Blacklist old refresh tokens
+    'UPDATE_LAST_LOGIN': True,  # Update last_login field on token generation
+    
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'VERIFYING_KEY': None,
+    'AUDIENCE': None,
+    'ISSUER': 'lsc-portal',
+    
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
+    
+    'JTI_CLAIM': 'jti',
+    
+    # Custom claims
+    'TOKEN_USER_CLASS': 'lsc_auth.models.LSCUser',
+}
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
+    "http://localhost:5175",  # Current Vite port
+    "http://127.0.0.1:5175",
+    "http://localhost:8081",  # Alternative Vite port
+    "http://127.0.0.1:8081",
     # Add production URL when deployed
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]

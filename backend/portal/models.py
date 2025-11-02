@@ -90,7 +90,7 @@ class Counsellor(models.Model):
     programme_assigned = models.ForeignKey(Program, on_delete=models.CASCADE)
     mobile_number = models.CharField(max_length=10)
     alternate_number = models.CharField(max_length=10, blank=True)
-    email_id = models.EmailField(unique=True)
+    email_id = models.EmailField(max_length=150, unique=True)
     current_designation = models.CharField(max_length=100)
     working_experience = models.TextField()
     address_line1 = models.CharField(max_length=255)
@@ -104,3 +104,155 @@ class Counsellor(models.Model):
 
     def __str__(self):
         return self.counsellor_name
+
+class ApplicationSettings(models.Model):
+    ADMISSION_STATUS_CHOICES = [
+        ('OPEN', 'Open'),
+        ('CLOSED', 'Closed'),
+        ('SCHEDULED', 'Scheduled'),
+        ('EXPIRED', 'Expired'),
+    ]
+    
+    ADMISSION_TYPE_CHOICES = [
+        ('ACADEMIC_YEAR', 'Academic Year'),
+        ('CALENDAR_YEAR', 'Calendar Year'),
+        ('UG', 'Under Graduate'),
+        ('PG', 'Post Graduate'),
+        ('DIPLOMA', 'Diploma'),
+        ('CERTIFICATE', 'Certificate'),
+        ('PHD', 'PhD'),
+        ('DISTANCE', 'Distance Education'),
+        ('ONLINE', 'Online Program'),
+    ]
+
+    # Core Fields matching your admission form
+    admission_code = models.CharField(max_length=20, unique=True, help_text='Admission Code (Ex: A24)')
+    admission_type = models.CharField(max_length=50, choices=ADMISSION_TYPE_CHOICES, help_text='Type of admission program')
+    admission_year = models.CharField(max_length=20, help_text='Academic year (Ex: 2024-25 or 2025)')
+    admission_key = models.CharField(max_length=50, unique=True, help_text='Unique admission key for reference')
+    
+    # Status and Dates
+    status = models.CharField(max_length=20, choices=ADMISSION_STATUS_CHOICES, default='CLOSED')
+    is_active = models.BooleanField(default=True)
+    opening_date = models.DateField(null=True, blank=True, help_text='Date when online application opens')
+    closing_date = models.DateField(null=True, blank=True, help_text='Date when online application closes')
+    
+    # Application Limits
+    max_applications = models.PositiveIntegerField(default=0, help_text='Maximum applications (0 for unlimited)')
+    current_applications = models.PositiveIntegerField(default=0)
+    
+    # Additional Info
+    description = models.TextField(blank=True, help_text='Additional details about this admission session')
+    instructions = models.TextField(blank=True)
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=100, blank=True, null=True)
+
+    class Meta:
+        db_table = 'portal_applicationsettings'
+        ordering = ['-admission_year', '-opening_date']
+        verbose_name = 'Application Setting'
+        verbose_name_plural = 'Application Settings'
+
+    def __str__(self):
+        return f"{self.admission_code} - {self.admission_type} ({'Open' if self.status == 'OPEN' else 'Closed'})"
+
+    def save(self, *args, **kwargs):
+        # Auto-update status based on dates
+        from datetime import date
+        today = date.today()
+        
+        if self.opening_date and self.closing_date:
+            if self.opening_date > today:
+                self.status = 'SCHEDULED'
+            elif self.closing_date < today:
+                self.status = 'EXPIRED'
+        
+        super().save(*args, **kwargs)
+
+    @property
+    def is_open(self):
+        """Check if admission is currently open"""
+        from datetime import date
+        today = date.today()
+        if not self.opening_date or not self.closing_date:
+            return False
+        return (
+            self.status == 'OPEN' and 
+            self.opening_date <= today <= self.closing_date and
+            self.is_active
+        )
+    
+    @property
+    def days_remaining(self):
+        """Calculate days remaining until closing"""
+        from datetime import date
+        if not self.closing_date:
+            return 0
+        if self.closing_date >= date.today():
+            return (self.closing_date - date.today()).days
+        return 0
+    
+    @property
+    def can_accept_applications(self):
+        """Check if can accept more applications"""
+        if self.max_applications == 0:
+            return True
+        return self.current_applications < self.max_applications
+
+    @property
+    def is_within_deadline(self):
+        from datetime import date
+        today = date.today()
+        if self.opening_date and self.closing_date:
+            return self.opening_date <= today <= self.closing_date
+        return self.status == 'OPEN'
+
+
+class SystemSettings(models.Model):
+    SETTING_TYPES = [
+        ('GENERAL', 'General Settings'),
+        ('NOTIFICATION', 'Notification Settings'),
+        ('SECURITY', 'Security Settings'),
+        ('MAINTENANCE', 'Maintenance Settings'),
+    ]
+
+    setting_type = models.CharField(max_length=20, choices=SETTING_TYPES)
+    key = models.CharField(max_length=100)
+    value = models.TextField()
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['setting_type', 'key']
+
+    def __str__(self):
+        return f"{self.setting_type}: {self.key}"
+
+class NotificationSettings(models.Model):
+    NOTIFICATION_TYPES = [
+        ('EMAIL', 'Email Notifications'),
+        ('SMS', 'SMS Notifications'),
+        ('PUSH', 'Push Notifications'),
+        ('SYSTEM', 'System Notifications'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    notification_type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES)
+    is_enabled = models.BooleanField(default=True)
+    email_notifications = models.BooleanField(default=True)
+    sms_notifications = models.BooleanField(default=False)
+    push_notifications = models.BooleanField(default=True)
+    system_notifications = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['user', 'notification_type']
+
+    def __str__(self):
+        return f"{self.user.lsc_number} - {self.notification_type}"
