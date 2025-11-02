@@ -137,6 +137,10 @@ class ApplicationSettings(models.Model):
     opening_date = models.DateField(null=True, blank=True, help_text='Date when online application opens')
     closing_date = models.DateField(null=True, blank=True, help_text='Date when online application closes')
     
+    # Manual override flags for admission status
+    is_open = models.BooleanField(default=False, help_text='Manual override: Force admission to be open')
+    is_close = models.BooleanField(default=True, help_text='Manual override: Force admission to be closed')
+    
     # Application Limits
     max_applications = models.PositiveIntegerField(default=0, help_text='Maximum applications (0 for unlimited)')
     current_applications = models.PositiveIntegerField(default=0)
