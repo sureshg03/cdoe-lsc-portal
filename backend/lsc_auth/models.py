@@ -26,6 +26,8 @@ class LSCUser(AbstractBaseUser):
     lsc_number = models.CharField(max_length=10, unique=True)
     lsc_name = models.CharField(max_length=100)
     email = models.EmailField(max_length=150, unique=True)
+    mobile = models.CharField(max_length=15, blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)

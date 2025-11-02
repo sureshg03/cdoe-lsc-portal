@@ -16,6 +16,53 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 
+class LSCUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True)
+    
+    class Meta:
+        model = LSCUser
+        fields = [
+            'id', 'lsc_number', 'lsc_name', 'email', 'mobile', 'address',
+            'is_active', 'is_staff', 'date_joined', 'password'
+        ]
+        read_only_fields = ['id', 'date_joined']
+    
+    def validate_lsc_number(self, value):
+        """Check if LSC number already exists"""
+        if self.instance is None:  # Creating new instance
+            if LSCUser.objects.filter(lsc_number=value).exists():
+                raise serializers.ValidationError(f"LSC Center with code '{value}' already exists.")
+        else:  # Updating existing instance
+            if LSCUser.objects.filter(lsc_number=value).exclude(id=self.instance.id).exists():
+                raise serializers.ValidationError(f"LSC Center with code '{value}' already exists.")
+        return value
+    
+    def validate_email(self, value):
+        """Check if email already exists"""
+        if self.instance is None:  # Creating new instance
+            if LSCUser.objects.filter(email=value).exists():
+                raise serializers.ValidationError(f"LSC Center with email '{value}' already exists.")
+        else:  # Updating existing instance
+            if LSCUser.objects.filter(email=value).exclude(id=self.instance.id).exists():
+                raise serializers.ValidationError(f"LSC Center with email '{value}' already exists.")
+        return value
+    
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        user = LSCUser(**validated_data)
+        user.set_password(password)
+        user.save()
+        return user
+    
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+
 class LSCLoginSerializer(serializers.Serializer):
     lscNumber = serializers.CharField(required=False)
     lsc_number = serializers.CharField(required=False)
@@ -261,3 +308,84 @@ class CustomTokenRefreshView(APIView):
             return Response({
                 'detail': 'Token refresh failed.'
             }, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class LSCManagementView(APIView):
+    """
+    API endpoint for LSC Center management
+    Provides CRUD operations for LSCUser model
+    """
+    
+    def get(self, request):
+        """List all LSC centers"""
+        lsc_users = LSCUser.objects.all().order_by('lsc_number')
+        serializer = LSCUserSerializer(lsc_users, many=True)
+        return Response({
+            'count': lsc_users.count(),
+            'results': serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    def post(self, request):
+        """Create a new LSC center"""
+        serializer = LSCUserSerializer(data=request.data)
+        if serializer.is_valid():
+            lsc_user = serializer.save()
+            return Response({
+                'message': f'LSC Center {lsc_user.lsc_name} created successfully',
+                'data': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        return Response({
+            'detail': 'Validation failed',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LSCManagementDetailView(APIView):
+    """
+    API endpoint for individual LSC center operations
+    """
+    
+    def get(self, request, lsc_number):
+        """Get LSC center details"""
+        try:
+            lsc_user = LSCUser.objects.get(lsc_number=lsc_number)
+            serializer = LSCUserSerializer(lsc_user)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except LSCUser.DoesNotExist:
+            return Response({
+                'detail': f'LSC Center with code {lsc_number} not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+    
+    def put(self, request, lsc_number):
+        """Update LSC center details"""
+        try:
+            lsc_user = LSCUser.objects.get(lsc_number=lsc_number)
+            serializer = LSCUserSerializer(lsc_user, data=request.data, partial=True)
+            if serializer.is_valid():
+                updated_user = serializer.save()
+                return Response({
+                    'message': f'LSC Center {updated_user.lsc_name} updated successfully',
+                    'data': serializer.data
+                }, status=status.HTTP_200_OK)
+            return Response({
+                'detail': 'Validation failed',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except LSCUser.DoesNotExist:
+            return Response({
+                'detail': f'LSC Center with code {lsc_number} not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+    
+    def delete(self, request, lsc_number):
+        """Delete LSC center"""
+        try:
+            lsc_user = LSCUser.objects.get(lsc_number=lsc_number)
+            lsc_name = lsc_user.lsc_name
+            lsc_user.delete()
+            return Response({
+                'message': f'LSC Center {lsc_name} deleted successfully'
+            }, status=status.HTTP_204_NO_CONTENT)
+        except LSCUser.DoesNotExist:
+            return Response({
+                'detail': f'LSC Center with code {lsc_number} not found'
+            }, status=status.HTTP_404_NOT_FOUND)

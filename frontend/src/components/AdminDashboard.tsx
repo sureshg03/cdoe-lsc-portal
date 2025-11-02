@@ -16,7 +16,8 @@ import {
   Activity,
   UserCog,
   User,
-  Calendar
+  Calendar,
+  Building2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,6 +32,7 @@ import { AttendanceModule } from './modules/AttendanceModule';
 import { AssignmentMarks } from './modules/AssignmentMarks';
 import { ReportsModule } from './modules/ReportsModule';
 import { AdmissionManagement } from './modules/AdmissionManagement';
+import { LSCManagement } from './modules/LSCManagement';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -230,6 +232,9 @@ export const AdminDashboard = () => {
       case 'admission-management':
         return <AdmissionManagement />;
       
+      case 'lsc-management':
+        return <LSCManagement />;
+      
       case 'admissions':
         return <StudentAdmissionDetails />;
       
@@ -425,6 +430,3 @@ export const AdminDashboard = () => {
     </div>
   );
 };
-
-// Missing import
-import { Building2 } from 'lucide-react';
