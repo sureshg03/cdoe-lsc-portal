@@ -115,23 +115,29 @@ class ApplicationSettingsViewSet(viewsets.ModelViewSet):
         admission = self.get_object()
         
         if admission.status == 'OPEN':
+            # Closing admission
             admission.status = 'CLOSED'
+            admission.is_open = False
+            admission.is_close = True
             message = 'Admission session closed successfully'
         elif admission.status == 'CLOSED':
-            # Check if dates are valid
+            # Opening admission - check dates first
             from datetime import date
             today = date.today()
-            if admission.opening_date > today:
+            if admission.opening_date and admission.opening_date > today:
                 return Response(
                     {'error': 'Cannot open admission before opening date'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            if admission.closing_date < today:
+            if admission.closing_date and admission.closing_date < today:
                 return Response(
                     {'error': 'Cannot open admission after closing date'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            # Opening admission
             admission.status = 'OPEN'
+            admission.is_open = True
+            admission.is_close = False
             message = 'Admission session opened successfully'
         else:
             return Response(

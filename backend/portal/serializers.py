@@ -41,7 +41,7 @@ class ApplicationSettingsSerializer(serializers.ModelSerializer):
     is_currently_open = serializers.ReadOnlyField()
     days_remaining = serializers.ReadOnlyField()
     can_accept_applications = serializers.ReadOnlyField()
-    
+
     class Meta:
         model = ApplicationSettings
         fields = '__all__'

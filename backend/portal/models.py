@@ -126,16 +126,14 @@ class ApplicationSettings(models.Model):
     ]
 
     # Core Fields matching your admission form
-    admission_code = models.CharField(max_length=20, unique=True, blank=True, null=True, help_text='Admission Code (Ex: A24)')
-    admission_type = models.CharField(max_length=50, choices=ADMISSION_TYPE_CHOICES, blank=True, null=True, help_text='Type of admission program')
-    admission_year = models.CharField(max_length=20, blank=True, null=True, help_text='Academic year (Ex: 2024-25 or 2025)')
-    admission_key = models.CharField(max_length=50, unique=True, blank=True, null=True, help_text='Unique admission key for reference')
+    admission_code = models.CharField(max_length=20, unique=True, help_text='Admission Code (Ex: A24)')
+    admission_type = models.CharField(max_length=50, choices=ADMISSION_TYPE_CHOICES, help_text='Type of admission program')
+    admission_year = models.CharField(max_length=20, help_text='Academic year (Ex: 2024-25 or 2025)')
+    admission_key = models.CharField(max_length=50, unique=True, help_text='Unique admission key for reference')
     
     # Status and Dates
     status = models.CharField(max_length=20, choices=ADMISSION_STATUS_CHOICES, default='CLOSED')
     is_active = models.BooleanField(default=True)
-    is_open = models.BooleanField(default=False, help_text='Manual override: Is admission currently open?')
-    is_close = models.BooleanField(default=True, help_text='Manual override: Is admission currently closed?')
     opening_date = models.DateField(null=True, blank=True, help_text='Date when online application opens')
     closing_date = models.DateField(null=True, blank=True, help_text='Date when online application closes')
     
@@ -162,22 +160,28 @@ class ApplicationSettings(models.Model):
         return f"{self.admission_code} - {self.admission_type} ({'Open' if self.status == 'OPEN' else 'Closed'})"
 
     def save(self, *args, **kwargs):
-        # Auto-update status based on dates
+        # Auto-update status based on dates and manual overrides
         from datetime import date
         today = date.today()
         
-        if self.opening_date and self.closing_date:
-            if self.opening_date > today:
-                self.status = 'SCHEDULED'
-            elif self.closing_date < today:
-                self.status = 'EXPIRED'
-            else:
-                # Within date range - set status based on manual flags
-                if self.is_open and not self.is_close:
-                    self.status = 'OPEN'
-                elif self.is_close and not self.is_open:
-                    self.status = 'CLOSED'
-                # If both are True or both are False, keep current status
+        # First, check manual override flags
+        if self.is_open and not self.is_close:
+            # Manual override to open
+            self.status = 'OPEN'
+        elif self.is_close and not self.is_open:
+            # Manual override to close
+            self.status = 'CLOSED'
+        else:
+            # No manual override, use date-based logic
+            if self.opening_date and self.closing_date:
+                if self.opening_date > today:
+                    self.status = 'SCHEDULED'
+                elif self.closing_date < today:
+                    self.status = 'EXPIRED'
+                else:
+                    # Within date range, default to open if no manual override
+                    if not self.is_open and not self.is_close:
+                        self.status = 'OPEN'
         
         # Ensure is_open and is_close are mutually exclusive
         if self.is_open and self.is_close:
@@ -190,18 +194,10 @@ class ApplicationSettings(models.Model):
         super().save(*args, **kwargs)
 
     @property
-    def is_currently_open(self):
-        """Check if admission is currently open based on dates and manual flags"""
+    def is_open(self):
+        """Check if admission is currently open"""
         from datetime import date
         today = date.today()
-        
-        # First check manual override flags
-        if self.is_open and not self.is_close:
-            return True
-        elif self.is_close and not self.is_open:
-            return False
-        
-        # Fall back to date-based logic
         if not self.opening_date or not self.closing_date:
             return False
         return (
