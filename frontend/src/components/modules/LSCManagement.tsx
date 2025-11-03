@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { 
   Plus, Edit, Trash2, Building2, Phone, Mail, MapPin, Key, Search, X, 
   FileSpreadsheet, RefreshCw, Calendar, Users, TrendingUp, Sparkles, 
-  Clock, BarChart3, UserCheck 
+  Clock, BarChart3, UserCheck, ChevronLeft, ChevronRight 
 } from 'lucide-react';
 import api from '@/lib/api';
 import * as XLSX from 'xlsx';
@@ -38,6 +38,8 @@ export const LSCManagement = () => {
   const [editingLsc, setEditingLsc] = useState<LSCUser | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [formData, setFormData] = useState({
     lsc_number: '',
     lsc_name: '',
@@ -71,6 +73,7 @@ export const LSCManagement = () => {
       );
       setFilteredCenters(filtered);
     }
+    setCurrentPage(1); // Reset to first page when search changes
   }, [lscCenters, searchTerm]);
 
   const fetchLscCenters = async () => {
@@ -212,6 +215,35 @@ export const LSCManagement = () => {
       toast({ title: "Export Successful", description: `Downloaded ${filteredCenters.length} center(s)` });
     } catch (error) {
       toast({ title: "Export Failed", description: "Failed to export data", variant: "destructive" });
+    }
+  };
+
+  // Pagination calculations
+  const totalItems = filteredCenters.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentItems = filteredCenters.slice(startIndex, endIndex);
+
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handleItemsPerPageChange = (value: string) => {
+    setItemsPerPage(Number(value));
+    setCurrentPage(1);
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
     }
   };
 
@@ -430,13 +462,34 @@ export const LSCManagement = () => {
             </CardTitle>
             <CardDescription className="mt-2 text-sm text-gray-600 font-medium">Complete overview of all registered LSC centers</CardDescription>
           </div>
-          <Button
-            onClick={() => setIsCreateDialogOpen(true)}
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-2 text-sm font-semibold rounded-lg"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Centers
-          </Button>
+          <div className="flex items-center gap-4">
+            {/* Show entries dropdown - moved to top right */}
+            {filteredCenters.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="entries-select" className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                  Show entries:
+                </Label>
+                <select
+                  id="entries-select"
+                  value={itemsPerPage.toString()}
+                  onChange={(e) => handleItemsPerPageChange(e.target.value)}
+                  className="w-20 h-9 border-2 border-gray-200 focus:border-blue-400 rounded-lg bg-white shadow-sm hover:shadow-md transition-all px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-400/20"
+                >
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </div>
+            )}
+            <Button
+              onClick={() => setIsCreateDialogOpen(true)}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-2 text-sm font-semibold rounded-lg"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Centers
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {filteredCenters.length === 0 ? (
@@ -466,7 +519,7 @@ export const LSCManagement = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredCenters.map((lsc, index) => (
+                  {currentItems.map((lsc, index) => (
                     <TableRow key={lsc.id} className={`group hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
                       <TableCell className="font-semibold">
                         <div className="flex items-center gap-3">
@@ -521,6 +574,76 @@ export const LSCManagement = () => {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {/* PAGINATION */}
+          {filteredCenters.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-gradient-to-r from-gray-50 to-blue-50/30 border-t border-gray-200">
+              {/* Pagination info and controls */}
+              <div className="flex items-center gap-6">
+                {/* Info text */}
+                <div className="text-sm text-gray-600 font-medium">
+                  Showing {startIndex + 1} to {Math.min(endIndex, totalItems)} of {totalItems} entries
+                </div>
+
+                {/* Page controls */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePrevPage}
+                    disabled={currentPage === 1}
+                    className="border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-500 text-gray-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all px-3 py-2"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span className="hidden sm:inline ml-1">Prev</span>
+                  </Button>
+
+                  {/* Page numbers */}
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={currentPage === pageNum ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handlePageChange(pageNum)}
+                          className={`w-9 h-9 border-2 ${
+                            currentPage === pageNum
+                              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg'
+                              : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-gray-700 hover:text-blue-700'
+                          } shadow-sm hover:shadow-md transition-all`}
+                        >
+                          {pageNum}
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleNextPage}
+                    disabled={currentPage === totalPages}
+                    className="border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-500 text-gray-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all px-3 py-2"
+                  >
+                    <span className="hidden sm:inline mr-1">Next</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>

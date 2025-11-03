@@ -13,7 +13,21 @@ import {
   Trash2,
   Power,
   PowerOff,
-  Users
+  Users,
+  Search,
+  Filter,
+  Download,
+  FileSpreadsheet,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Copy,
+  BarChart3,
+  Zap,
+  TrendingUp,
+  Award,
+  Timer,
+  X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,6 +52,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import * as XLSX from 'xlsx';
 
 interface AdmissionSession {
   id: number;
@@ -97,9 +112,19 @@ export const AdmissionManagement = () => {
     is_close: true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // Enhanced features state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [selectedSessions, setSelectedSessions] = useState<number[]>([]);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
     fetchSessions();
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
   }, []);
 
   const fetchSessions = async () => {
@@ -242,236 +267,682 @@ export const AdmissionManagement = () => {
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
-      OPEN: { color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle },
-      CLOSED: { color: 'bg-red-100 text-red-800 border-red-200', icon: XCircle },
-      SCHEDULED: { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Clock },
-      EXPIRED: { color: 'bg-gray-100 text-gray-800 border-gray-200', icon: AlertTriangle },
+      OPEN: { color: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: CheckCircle },
+      CLOSED: { color: 'bg-rose-100 text-rose-800 border-rose-200', icon: XCircle },
+      SCHEDULED: { color: 'bg-sky-100 text-sky-800 border-sky-200', icon: Clock },
+      EXPIRED: { color: 'bg-slate-100 text-slate-800 border-slate-200', icon: AlertTriangle },
     };
 
     const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.CLOSED;
     const Icon = config.icon;
 
     return (
-      <Badge className={`${config.color} flex items-center gap-1`}>
-        <Icon className="w-3 h-3" />
+      <Badge className={`${config.color} flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold`}>
+        <Icon className="w-3.5 h-3.5" />
         {status}
       </Badge>
     );
   };
 
+  // Enhanced utility functions
+  const handleExportToExcel = () => {
+    const exportData = filteredSessions.map(session => ({
+      'Admission Code': session.admission_code,
+      'Type': ADMISSION_TYPES.find(t => t.value === session.admission_type)?.label,
+      'Year': session.admission_year,
+      'Status': session.status,
+      'Opening Date': new Date(session.opening_date).toLocaleDateString(),
+      'Closing Date': new Date(session.closing_date).toLocaleDateString(),
+      'Applications': `${session.current_applications}/${session.max_applications === 0 ? 'Unlimited' : session.max_applications}`,
+      'Days Remaining': session.days_remaining,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Admission Sessions');
+    XLSX.writeFile(wb, `admission_sessions_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Exported to Excel successfully!');
+  };
+
+  const handleDuplicateSession = (session: AdmissionSession) => {
+    setFormData({
+      admission_code: `${session.admission_code}_COPY`,
+      admission_type: session.admission_type,
+      admission_year: session.admission_year,
+      admission_key: `${session.admission_key}_COPY`,
+      opening_date: session.opening_date,
+      closing_date: session.closing_date,
+      description: session.description || '',
+      max_applications: session.max_applications,
+      is_open: false,
+      is_close: true,
+    });
+    setShowCreateDialog(true);
+    toast.info('Session data copied. Update and save.');
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedSessions.length === 0) {
+      toast.error('No sessions selected');
+      return;
+    }
+
+    try {
+      await Promise.all(
+        selectedSessions.map(id => api.delete(`/application-settings/${id}/`))
+      );
+      toast.success(`${selectedSessions.length} sessions deleted successfully`);
+      setSelectedSessions([]);
+      fetchSessions();
+    } catch (error) {
+      console.error('Error deleting sessions:', error);
+      toast.error('Failed to delete some sessions');
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedSessions.length === filteredSessions.length) {
+      setSelectedSessions([]);
+    } else {
+      setSelectedSessions(filteredSessions.map(s => s.id));
+    }
+  };
+
+  const toggleSelectSession = (id: number) => {
+    setSelectedSessions(prev =>
+      prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]
+    );
+  };
+
+  // Filtering and pagination
+  const filteredSessions = sessions.filter(session => {
+    const matchesSearch = session.admission_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          session.admission_year.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'ALL' || session.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const totalPages = Math.ceil(filteredSessions.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentSessions = filteredSessions.slice(startIndex, endIndex);
+
+  const stats = {
+    open: sessions.filter(s => s.status === 'OPEN').length,
+    scheduled: sessions.filter(s => s.status === 'SCHEDULED').length,
+    closed: sessions.filter(s => s.status === 'CLOSED').length,
+    total: sessions.length,
+    totalApplications: sessions.reduce((sum, s) => sum + s.current_applications, 0),
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="flex items-center space-x-2">
-          <RefreshCw className="w-6 h-6 animate-spin" />
-          <span>Loading admission sessions...</span>
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin"></div>
+            <Calendar className="w-8 h-8 text-purple-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-semibold text-gray-800">Loading Admission Sessions</p>
+            <p className="text-sm text-gray-500 mt-1">Please wait while we fetch the data...</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-            Admission Management
-          </h1>
-          <p className="text-gray-600 mt-1">
-            Manage admission sessions and control online application periods
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={fetchSessions} variant="outline">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
-          <Button onClick={() => setShowCreateDialog(true)} className="bg-gradient-to-r from-indigo-600 to-purple-600">
-            <Plus className="w-4 h-4 mr-2" />
-            New Admission
-          </Button>
-        </div>
-      </div>
-
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-0 shadow-lg bg-gradient-to-br from-green-50 to-green-100">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Open Sessions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-700">
-              {sessions.filter(s => s.status === 'OPEN').length}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-blue-100">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Scheduled</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-700">
-              {sessions.filter(s => s.status === 'SCHEDULED').length}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-lg bg-gradient-to-br from-red-50 to-red-100">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Closed</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-700">
-              {sessions.filter(s => s.status === 'CLOSED').length}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-lg bg-gradient-to-br from-purple-50 to-purple-100">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Sessions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-purple-700">{sessions.length}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Sessions List */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Admission Sessions</CardTitle>
-          <CardDescription>View and manage all admission sessions</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {sessions.length === 0 ? (
-              <div className="text-center py-12">
-                <Calendar className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Admission Sessions</h3>
-                <p className="text-gray-600 mb-4">
-                  Create your first admission session to start accepting applications
-                </p>
-                <Button onClick={() => setShowCreateDialog(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Admission Session
-                </Button>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto space-y-8">
+        {/* Header */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                <Calendar className="w-5 h-5 text-white" />
               </div>
-            ) : (
-              sessions.map((session) => (
-                <Card key={session.id} className="border-l-4 border-l-indigo-500">
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-xl font-bold">{session.admission_code}</h3>
-                          {getStatusBadge(session.status)}
-                          {!session.is_active && (
-                            <Badge variant="outline" className="bg-gray-100">Inactive</Badge>
-                          )}
-                          {(session.is_open || session.is_close) && (
-                            <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-200">
-                              Manual Override
-                            </Badge>
-                          )}
-                        </div>
+              Admission Management
+            </h1>
+            <p className="text-sm text-gray-600 mt-2 ml-13">
+              Manage admission sessions and control online application periods
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              onClick={handleExportToExcel} 
+              variant="outline" 
+              className="h-9 px-4 rounded-lg text-sm border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-500 hover:border-emerald-400 hover:scale-105 hover:shadow-md transition-all duration-300 font-semibold"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 mr-2" />
+              Export
+            </Button>
+            <Button 
+              onClick={fetchSessions} 
+              variant="outline"
+              className="h-9 px-4 rounded-lg text-sm border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-500 hover:border-blue-400 hover:scale-105 hover:shadow-md transition-all duration-300 font-semibold"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-2" />
+              Refresh
+            </Button>
+            <Button 
+              onClick={() => setShowCreateDialog(true)} 
+              className="h-9 px-5 rounded-lg text-sm bg-gradient-to-r from-purple-600 via-purple-500 to-purple-700 hover:from-purple-700 hover:via-purple-600 hover:to-indigo-700 shadow-md hover:shadow-lg hover:scale-105 transition-all duration-300 font-semibold text-white"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              New Admission
+            </Button>
+          </div>
+        </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                          <div>
-                            <p className="text-sm text-gray-600">Type</p>
-                            <p className="font-medium">
-                              {ADMISSION_TYPES.find(t => t.value === session.admission_type)?.label}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Year</p>
-                            <p className="font-medium">{session.admission_year}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Opening Date</p>
-                            <p className="font-medium">
-                              {new Date(session.opening_date).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Closing Date</p>
-                            <p className="font-medium">
-                              {new Date(session.closing_date).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
+        {/* Enhanced Statistics Cards with Advanced Features */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-emerald-50 to-white shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-emerald-400"></div>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wide">Open Sessions</p>
+                    <TrendingUp className="w-3 h-3 text-emerald-500" />
+                  </div>
+                  <p className="text-2xl font-bold text-emerald-600 mb-1">{stats.open}</p>
+                  <p className="text-[10px] text-gray-500">Active & Accepting</p>
+                </div>
+                <div className="w-11 h-11 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-300">
+                  <CheckCircle className="w-5 h-5 text-white" />
+                </div>
+              </div>
+              <div className="mt-3 pt-2 border-t border-emerald-100">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-gray-600 font-medium">Status</span>
+                  <span className="text-emerald-600 font-bold flex items-center gap-1">
+                    <Zap className="w-2.5 h-2.5" /> Active
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-                        <div className="flex items-center gap-4 mt-4">
-                          <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-gray-600" />
-                            <span className="text-sm">
-                              {session.current_applications} / {session.max_applications === 0 ? 'Unlimited' : session.max_applications} applications
-                            </span>
+          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-sky-50 to-white shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-sky-500 to-sky-400"></div>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <p className="text-[10px] font-bold text-sky-600 uppercase tracking-wide">Scheduled</p>
+                    <Timer className="w-3 h-3 text-sky-500" />
+                  </div>
+                  <p className="text-2xl font-bold text-sky-600 mb-1">{stats.scheduled}</p>
+                  <p className="text-[10px] text-gray-500">Upcoming Soon</p>
+                </div>
+                <div className="w-11 h-11 bg-gradient-to-br from-sky-500 to-sky-600 rounded-xl flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-300">
+                  <Clock className="w-5 h-5 text-white" />
+                </div>
+              </div>
+              <div className="mt-3 pt-2 border-t border-sky-100">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-gray-600 font-medium">Status</span>
+                  <span className="text-sky-600 font-bold flex items-center gap-1">
+                    <Clock className="w-2.5 h-2.5" /> Pending
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-rose-50 to-white shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-rose-500 to-rose-400"></div>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <p className="text-[10px] font-bold text-rose-600 uppercase tracking-wide">Closed</p>
+                    <XCircle className="w-3 h-3 text-rose-500" />
+                  </div>
+                  <p className="text-2xl font-bold text-rose-600 mb-1">{stats.closed}</p>
+                  <p className="text-[10px] text-gray-500">Not Accepting</p>
+                </div>
+                <div className="w-11 h-11 bg-gradient-to-br from-rose-500 to-rose-600 rounded-xl flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-300">
+                  <XCircle className="w-5 h-5 text-white" />
+                </div>
+              </div>
+              <div className="mt-3 pt-2 border-t border-rose-100">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-gray-600 font-medium">Status</span>
+                  <span className="text-rose-600 font-bold flex items-center gap-1">
+                    <PowerOff className="w-2.5 h-2.5" /> Inactive
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-purple-50 to-white shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-purple-400"></div>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <p className="text-[10px] font-bold text-purple-600 uppercase tracking-wide">Total Sessions</p>
+                    <Award className="w-3 h-3 text-purple-500" />
+                  </div>
+                  <p className="text-2xl font-bold text-purple-600 mb-1">{stats.total}</p>
+                  <p className="text-[10px] text-gray-500">All Time</p>
+                </div>
+                <div className="w-11 h-11 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-300">
+                  <BarChart3 className="w-5 h-5 text-white" />
+                </div>
+              </div>
+              <div className="mt-3 pt-2 border-t border-purple-100">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-gray-600 font-medium">Total</span>
+                  <span className="text-purple-600 font-bold flex items-center gap-1">
+                    <Calendar className="w-2.5 h-2.5" /> {stats.total}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-amber-50 to-white shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 to-amber-400"></div>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wide">Applications</p>
+                    <TrendingUp className="w-3 h-3 text-amber-500" />
+                  </div>
+                  <p className="text-2xl font-bold text-amber-600 mb-1">{stats.totalApplications}</p>
+                  <p className="text-[10px] text-gray-500">Total Received</p>
+                </div>
+                <div className="w-11 h-11 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-300">
+                  <Users className="w-5 h-5 text-white" />
+                </div>
+              </div>
+              <div className="mt-3 pt-2 border-t border-amber-100">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-gray-600 font-medium">Count</span>
+                  <span className="text-amber-600 font-bold flex items-center gap-1">
+                    <Users className="w-2.5 h-2.5" /> {stats.totalApplications}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Search, Filter & Actions Bar */}
+        <Card className="border-0 shadow-md">
+          <CardContent className="pt-6">
+            <div className="flex flex-col lg:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by admission code or year..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-11 pl-11 pr-10 rounded-xl border-2 border-gray-200 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all text-sm"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <div className="relative">
+                  <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="h-11 pl-10 pr-10 rounded-xl border-2 border-gray-200 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 bg-white text-sm font-medium appearance-none cursor-pointer"
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.5em 1.5em' }}
+                  >
+                    <option value="ALL">All Status</option>
+                    <option value="OPEN">Open</option>
+                    <option value="SCHEDULED">Scheduled</option>
+                    <option value="CLOSED">Closed</option>
+                    <option value="EXPIRED">Expired</option>
+                  </select>
+                </div>
+
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="h-11 px-4 pr-10 rounded-xl border-2 border-gray-200 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 bg-white text-sm font-medium appearance-none cursor-pointer"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.5em 1.5em' }}
+                >
+                  <option value={5}>5 per page</option>
+                  <option value={10}>10 per page</option>
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                </select>
+
+                {selectedSessions.length > 0 && (
+                  <Button
+                    onClick={handleBulkDelete}
+                    variant="outline"
+                    className="h-11 px-4 rounded-lg text-sm border border-rose-300 bg-gradient-to-r from-rose-50 to-red-50 text-rose-700 hover:from-rose-500 hover:to-red-00 hover:border-rose-400 hover:scale-105 shadow-sm hover:shadow-md transition-all duration-300 font-semibold"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-2" />
+                    Delete ({selectedSessions.length})
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Sessions List */}
+        <Card className="border-0 shadow-md">
+          <CardHeader className="border-b bg-gradient-to-r from-gray-50 to-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg font-bold text-gray-900">Admission Sessions</CardTitle>
+                <CardDescription className="text-xs text-gray-600 mt-1">
+                  Showing {startIndex + 1} to {Math.min(endIndex, filteredSessions.length)} of {filteredSessions.length} sessions
+                </CardDescription>
+              </div>
+              {filteredSessions.length > 0 && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedSessions.length === filteredSessions.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Select All</span>
+                </label>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              {filteredSessions.length === 0 ? (
+                <div className="text-center py-16">
+                  <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Calendar className="w-12 h-12 text-gray-400" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">
+                    {sessions.length === 0 ? 'No Admission Sessions' : 'No Results Found'}
+                  </h3>
+                  <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                    {sessions.length === 0 
+                      ? 'Create your first admission session to start accepting applications'
+                      : 'Try adjusting your search or filter criteria'}
+                  </p>
+                  {sessions.length === 0 && (
+                    <Button 
+                      onClick={() => setShowCreateDialog(true)}
+                      className="h-11 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Admission Session
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                currentSessions.map((session) => (
+                  <Card key={session.id} className="relative border-0 bg-gradient-to-r from-white to-purple-50 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 overflow-hidden group">
+                    <div className={`absolute left-0 top-0 bottom-0 w-2 ${
+                      session.status === 'OPEN' ? 'bg-gradient-to-b from-emerald-500 to-emerald-600' :
+                      session.status === 'SCHEDULED' ? 'bg-gradient-to-b from-sky-500 to-sky-600' :
+                      session.status === 'CLOSED' ? 'bg-gradient-to-b from-rose-500 to-rose-600' :
+                      'bg-gradient-to-b from-gray-500 to-gray-600'
+                    }`}></div>
+                    <CardContent className="pt-6 pl-8">
+                      <div className="flex items-start gap-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedSessions.includes(session.id)}
+                          onChange={() => toggleSelectSession(session.id)}
+                          className="mt-1 w-5 h-5 text-purple-600 bg-gray-100 border-2 border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 cursor-pointer transition-all hover:scale-110"
+                        />
+                        
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-3">
+                            <h3 className="text-lg font-bold text-gray-900 group-hover:text-purple-700 transition-colors">{session.admission_code}</h3>
+                            {getStatusBadge(session.status)}
+                            {!session.is_active && (
+                              <Badge variant="outline" className="bg-gradient-to-r from-gray-100 to-gray-200 text-gray-800 border-gray-300 px-2 py-0.5 text-[10px] font-bold shadow-sm">
+                                ⚠️ Inactive
+                              </Badge>
+                            )}
+                            {(session.is_open || session.is_close) && (
+                              <Badge variant="outline" className="bg-gradient-to-r from-amber-100 to-orange-100 text-amber-900 border-amber-300 px-2 py-0.5 text-[10px] font-bold shadow-sm animate-pulse">
+                                🔧 Manual Override
+                              </Badge>
+                            )}
                           </div>
-                          {session.days_remaining > 0 && session.status === 'OPEN' && (
-                            <div className="flex items-center gap-2">
-                              <Clock className="w-4 h-4 text-gray-600" />
-                              <span className="text-sm">{session.days_remaining} days remaining</span>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 mb-3">
+                            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-3 rounded-lg border border-purple-100 hover:shadow-md transition-all">
+                              <p className="text-[10px] font-bold text-purple-600 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                <Calendar className="w-2.5 h-2.5" /> Type
+                              </p>
+                              <p className="text-sm font-bold text-gray-900 leading-tight">
+                                {ADMISSION_TYPES.find(t => t.value === session.admission_type)?.label}
+                              </p>
                             </div>
-                          )}
-                        </div>
-                      </div>
+                            <div className="bg-gradient-to-br from-blue-50 to-cyan-50 p-3 rounded-lg border border-blue-100 hover:shadow-md transition-all">
+                              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                <Award className="w-2.5 h-2.5" /> Year
+                              </p>
+                              <p className="text-sm font-bold text-gray-900 leading-tight">{session.admission_year}</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-emerald-50 to-green-50 p-3 rounded-lg border border-emerald-100 hover:shadow-md transition-all">
+                              <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                <Calendar className="w-2.5 h-2.5" /> Opens
+                              </p>
+                              <p className="text-sm font-bold text-gray-900 leading-tight">
+                                {new Date(session.opening_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </p>
+                            </div>
+                            <div className="bg-gradient-to-br from-rose-50 to-red-50 p-3 rounded-lg border border-rose-100 hover:shadow-md transition-all">
+                              <p className="text-[10px] font-bold text-rose-600 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                <Calendar className="w-2.5 h-2.5" /> Closes
+                              </p>
+                              <p className="text-sm font-bold text-gray-900 leading-tight">
+                                {new Date(session.closing_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </p>
+                            </div>
+                          </div>
 
-                      <div className="flex gap-2">
-                        {(session.status === 'OPEN' || session.status === 'CLOSED') && (
+                          <div className="flex flex-wrap items-center gap-3 py-3 px-4 bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 rounded-lg border border-purple-100">
+                            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg shadow-sm">
+                              <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-lg flex items-center justify-center">
+                                <Users className="w-4 h-4 text-white" />
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-gray-500 font-medium leading-tight">Applications</p>
+                                <p className="text-sm font-bold text-gray-900 leading-tight">
+                                  {session.current_applications} / {session.max_applications === 0 ? '∞' : session.max_applications}
+                                </p>
+                              </div>
+                            </div>
+                            {session.days_remaining > 0 && session.status === 'OPEN' && (
+                              <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg shadow-sm animate-pulse">
+                                <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg flex items-center justify-center">
+                                  <Timer className="w-4 h-4 text-white" />
+                                </div>
+                                <div>
+                                  <p className="text-[10px] text-gray-500 font-medium leading-tight">Time Left</p>
+                                  <p className="text-sm font-bold text-amber-600 leading-tight">
+                                    {session.days_remaining} days
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                            {session.can_accept_applications && (
+                              <div className="flex items-center gap-1.5 bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-300">
+                                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                <span className="text-[10px] font-bold text-emerald-700">Accepting</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {(session.status === 'OPEN' || session.status === 'CLOSED') && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleToggleStatus(session)}
+                              className={`h-9 px-3 rounded-lg text-xs font-semibold shadow-sm hover:shadow-md transition-all duration-300 hover:scale-105 ${
+                                session.status === 'OPEN' 
+                                  ? 'border border-rose-300 bg-gradient-to-r from-rose-50 to-red-50 text-rose-700 hover:from-rose-500 hover:to-red-700 hover:border-rose-400' 
+                                  : 'border border-emerald-300 bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 hover:from-emerald-500 hover:to-green-700 hover:border-emerald-400'
+                              }`}
+                            >
+                              {session.status === 'OPEN' ? (
+                                <>
+                                  <PowerOff className="w-3.5 h-3.5 mr-1.5" /> 
+                                  <span>Close</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Power className="w-3.5 h-3.5 mr-1.5" /> 
+                                  <span>Open</span>
+                                </>
+                              )}
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleToggleStatus(session)}
+                            onClick={() => handleDuplicateSession(session)}
+                            className="h-9 px-3 rounded-lg text-xs border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-500 hover:border-purple-400 hover:scale-105 shadow-sm hover:shadow-md transition-all duration-300 font-semibold"
+                            title="Duplicate Session"
                           >
-                            {session.status === 'OPEN' ? (
-                              <><PowerOff className="w-4 h-4 mr-1" /> Close</>
-                            ) : (
-                              <><Power className="w-4 h-4 mr-1" /> Open</>
-                            )}
+                            <Copy className="w-3.5 h-3.5 mr-1.5" />
+                            <span>Copy</span>
                           </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEditDialog(session)}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600 hover:text-red-700"
-                          onClick={() => {
-                            setSelectedSession(session);
-                            setShowDeleteDialog(true);
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditDialog(session)}
+                            className="h-9 px-3 rounded-lg text-xs border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-500 hover:border-indigo-400 hover:scale-105 shadow-sm hover:shadow-md transition-all duration-300 font-semibold"
+                            title="Edit Session"
+                          >
+                            <Edit className="w-3.5 h-3.5 mr-1.5" />
+                            <span>Edit</span>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedSession(session);
+                              setShowDeleteDialog(true);
+                            }}
+                            className="h-9 px-3 rounded-lg text-xs border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-500 hover:border-rose-400 hover:scale-105 shadow-sm hover:shadow-md transition-all duration-300 font-semibold"
+                            title="Delete Session"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                            <span>Delete</span>
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Pagination */}
+        {filteredSessions.length > 0 && (
+          <Card className="border-0 shadow-md">
+            <CardContent className="pt-6">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="text-sm text-gray-600 font-medium">
+                  Showing <span className="font-bold text-gray-900">{startIndex + 1}</span> to{' '}
+                  <span className="font-bold text-gray-900">{Math.min(endIndex, filteredSessions.length)}</span> of{' '}
+                  <span className="font-bold text-gray-900">{filteredSessions.length}</span> sessions
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="h-9 px-4 rounded-lg text-sm border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-400 hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all duration-300 font-semibold shadow-sm hover:shadow-md"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5 mr-1.5" />
+                    Previous
+                  </Button>
+
+                  <div className="flex gap-1.5">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-9 h-9 rounded-lg text-sm font-semibold transition-all duration-300 shadow-sm hover:shadow-md ${
+                            currentPage === pageNum
+                              ? 'bg-gradient-to-r from-purple-600 via-purple-500 to-indigo-600 text-white scale-105'
+                              : 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 hover:from-gray-200 hover:to-gray-300 hover:scale-105'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="h-9 px-4 rounded-lg text-sm border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-400 hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all duration-300 font-semibold shadow-sm hover:shadow-md"
+                  >
+                    Next
+                    <ChevronRight className="w-3.5 h-3.5 ml-1.5" />
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
       {/* Create Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={(open) => { setShowCreateDialog(open); if (!open) resetForm(); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] bg-white">
-          <DialogHeader className="space-y-3 pb-4 border-b">
+          <DialogHeader className="space-y-2 pb-3 border-b">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center">
-                <Plus className="w-5 h-5 text-white" />
+              <div className="w-9 h-9 bg-purple-600 rounded-lg flex items-center justify-center">
+                <Plus className="w-4 h-4 text-white" />
               </div>
               <div>
-                <DialogTitle className="text-2xl font-bold text-purple-600">Create New Admission Session</DialogTitle>
-                <DialogDescription className="text-sm text-gray-500 mt-1">
+                <DialogTitle className="text-lg font-bold text-purple-600">Create New Admission Session</DialogTitle>
+                <DialogDescription className="text-xs text-gray-500 mt-0.5">
                   Fill in the details to create a new admission session
                 </DialogDescription>
               </div>
@@ -707,20 +1178,21 @@ export const AdmissionManagement = () => {
             </div>
           </div>
 
-          <DialogFooter className="border-t pt-4">
+          <DialogFooter className="border-t pt-3">
             <Button
               variant="outline"
               onClick={() => { setShowCreateDialog(false); resetForm(); }}
-              className="h-11 px-6 rounded-xl border-2"
+              className="h-9 px-5 rounded-lg text-sm border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 hover:border-gray-400 hover:scale-105 transition-all duration-300 font-semibold shadow-sm hover:shadow-md"
             >
+              <X className="w-3.5 h-3.5 mr-2" />
               Cancel
             </Button>
             <Button
               onClick={handleCreateSession}
-              className="h-11 px-8 rounded-xl bg-purple-600 hover:bg-purple-700 text-white"
+              className="h-9 px-6 rounded-lg text-sm bg-gradient-to-r from-purple-600 via-purple-500 to-indigo-600 hover:from-purple-700 hover:via-purple-600 hover:to-indigo-700 text-white hover:scale-105 shadow-md hover:shadow-lg transition-all duration-300 font-semibold"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Create Admission
+              Create Session
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -870,11 +1342,20 @@ export const AdmissionManagement = () => {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowEditDialog(false); setSelectedSession(null); resetForm(); }}>
+            <Button 
+              variant="outline" 
+              onClick={() => { setShowEditDialog(false); setSelectedSession(null); resetForm(); }}
+              className="h-9 px-5 rounded-lg text-sm border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 hover:border-gray-400 hover:scale-105 transition-all duration-300 font-semibold shadow-sm hover:shadow-md"
+            >
+              <X className="w-3.5 h-3.5 mr-2" />
               Cancel
             </Button>
-            <Button onClick={handleUpdateSession} className="bg-gradient-to-r from-indigo-600 to-purple-600">
-              Update Admission
+            <Button 
+              onClick={handleUpdateSession} 
+              className="h-9 px-6 rounded-lg text-sm bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-700 hover:via-indigo-600 hover:to-purple-700 text-white hover:scale-105 shadow-md hover:shadow-lg transition-all duration-300 font-semibold"
+            >
+              <Edit className="w-4 h-4 mr-2" />
+              Update Session
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -891,13 +1372,24 @@ export const AdmissionManagement = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setSelectedSession(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteSession} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogCancel 
+              onClick={() => setSelectedSession(null)}
+              className="h-9 px-5 rounded-lg text-sm border border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-gray-400 transition-all duration-300 font-semibold"
+            >
+              <X className="w-3.5 h-3.5 mr-2 inline" />
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteSession} 
+              className="h-9 px-6 rounded-lg text-sm bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white hover:scale-105 shadow-md hover:shadow-lg transition-all duration-300 font-semibold"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-2 inline" />
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   );
 };
